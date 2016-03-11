@@ -47,12 +47,21 @@ def submit_():
         print('Submitted job')
 
 def monitor_():
+    jobids_to_monitor = []
+    while True:
+        obj = monitoring.get()
+        jobids_to_monitor.append(obj['jid'])
+        monitoring.put(obj)
+    resp = dirac.getJobStatus(jobids_to_monitor)
+    if not resp['OK']:
+        print("Error in DIRAC monitoring -> {}".format(resp['Message']))
+        return None
+    dirac_status = resp['Value']
     while True:
         obj = monitoring.get()
         jid = obj['jid']
         status = obj['status']
-        resp = dirac.status(jid)
-        new_status = resp['Value'][jid]['Status']
+        new_status = dirac_status[jid]['Status']
         if new_status == 'Done' or new_status == 'Failed':
             if new_status == 'Done':
                 print('Job {} finished!'.format(jid))
