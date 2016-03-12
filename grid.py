@@ -47,35 +47,33 @@ def submit_():
         print('Submitted job')
 
 def monitor_():
-    jobids_to_monitor = []
+    jobs_to_monitor = {}
     while True:
-        obj = monitoring.get()
-        jobids_to_monitor.append(obj['jid'])
-        monitoring.put(obj)
-    resp = dirac.getJobStatus(jobids_to_monitor)
+        job = monitoring.get()
+        jobs_to_monitor[obj['jid']] = job
+    resp = dirac.getJobStatus(jobs_to_monitor.keys())
     if not resp['OK']:
         print("Error in DIRAC monitoring -> {}".format(resp['Message']))
-        return None
+        for job in jobs_to_monitor.values():
+            monitoring.put(job)
     dirac_status = resp['Value']
-    while True:
-        obj = monitoring.get()
-        jid = obj['jid']
-        status = obj['status']
+    for jid, job in jobs_to_monitor.items():
+        status = job['status']
         new_status = dirac_status[jid]['Status']
         if new_status == 'Done' or new_status == 'Failed':
             if new_status == 'Done':
                 print('Job {} finished!'.format(jid))
             else:
                 print('Job {} failed!'.format(jid))
-            obj['status'] = new_status
-            db.Put(bytes(jid), json.dumps(obj))
-            downloading.put(obj)
+            job['status'] = new_status
+            db.Put(bytes(jid), json.dumps(job))
+            downloading.put(job)
         else:
-            obj['status'] = new_status
+            job['status'] = new_status
             if new_status != status:
-                db.Put(bytes(jid), json.dumps(obj))
+                db.Put(bytes(jid), json.dumps(job))
                 print('Job {} changed to {}'.format(jid, new_status))
-            monitoring.put(obj)
+            monitoring.put(job)
 
 def download_():
     while True:
