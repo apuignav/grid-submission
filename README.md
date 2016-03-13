@@ -167,6 +167,13 @@ for group in groups:
     ...
     submit(j)
 ```
-Careful: You have to make sure that the right LFNs are used by DaVinci as well.
-For example, you could write them to a Python file that is different per job.
+In order to use these files, you need to make sure that the right PFNs are used by the LHCb application.
+Fortunately, DIRAC writes a `data.py` file which contains this info, so adding `data.py` in your `gaudirun.py`
+call should take care of this.
+In this case, your `job.sh` would look like this:
+```bash
+#!/bin/sh
 
+source /cvmfs/lhcb.cern.ch/lib/LbLogin.sh
+lb-run DaVinci v38r0 gaudirun.py options.py data.py
+```
