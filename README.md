@@ -168,8 +168,8 @@ for group in groups:
     submit(j)
 ```
 In order to use these files, you need to make sure that the right PFNs are used by the LHCb application.
-Fortunately, DIRAC writes a `data.py` file which contains this info, so adding `data.py` in your `gaudirun.py`
-call should take care of this.
+Fortunately, DIRAC writes a catalog file that includes all the needed information, so the LFNs can be used
+as inputs directly by adding an extra `data.py` input in the `gaudirun.py` call.
 In this case, your `job.sh` would look like this:
 ```bash
 #!/bin/sh
@@ -177,3 +177,17 @@ In this case, your `job.sh` would look like this:
 source /cvmfs/lhcb.cern.ch/lib/LbLogin.sh
 lb-run DaVinci v38r0 gaudirun.py options.py data.py
 ```
+The `split_lfns` function in `grid_utils.py` allows to easily create `data.py`:
+```python
+from grid_utils import split_lfns
+for group, data_script in split_lfns(lfns, 'data.py', max_files_per_job=10):
+    j = Job()
+    ...
+    j.setInputData(group)
+    j.setInputSandbox(['options.py', data_script])
+    ...
+    submit(j)
+    # Optional, remove the script 
+    os.remove(data_script)
+```
+
