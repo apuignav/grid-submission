@@ -17,6 +17,66 @@ class DiracException(Exception):
     """Exception in a call to the DIRAC API."""
 
 
+def _do_dirac_command(command, *args, **kwargs):
+    """Execute DIRAC command.
+
+    This function allows to wrap the commands and handle failures
+    and DIRAC conventional return values.
+
+    Arguments:
+        command (func): Method to execute.
+        *args: Arguments to be passed to the command.
+        **kwargs: Keyword arguments to be passed to the command.
+
+    Returns:
+        object: 'Value' of the S_OK response.
+
+    Raises:
+        DiracException: If the call to the API fails.
+
+    """
+    res = command(*args, **kwargs)
+    if not res['OK']:
+        raise DiracException(res['Message'])
+    return res['Value']
+
+
+def submit(job):
+    """Submit a job to the DIRAC backend.
+
+    Wraps the `submitJob` method of the API.
+
+    Arguments:
+        job (`DIRAC.Interfaces.API.Job`): Job to submit.
+
+    Returns:
+        int: Job ID.
+
+    Raises:
+        DiracException: If the call to the API fails.
+
+    """
+    return int(_do_dirac_command(DiracLHCb().submitJob, job))
+
+
+def reschedule(job_ids):
+    """Reschedule a job in the DIRAC backend.
+
+    Wraps the `rescheduleJob` method of the API.
+
+    Arguments:
+        job_ids (list, int): Jobs to reschedule.
+
+    Returns:
+        list: Job IDs.
+
+    Raises:
+        DiracException: If the call to the API fails.
+
+    """
+    return _do_dirac_command(DiracLHCb().rescheduleJob, job_ids)
+
+
 def bk_query(path, print_stats=False):
     """Query the LHCb Bookeeping for data.
 
@@ -31,9 +91,7 @@ def bk_query(path, print_stats=False):
         list: LFNs under the requested path.
 
     """
-    resp = DiracLHCb().bkQueryPath(path)
-    if not resp['OK']:
-        raise DiracException(resp['Message'])
+    res = _do_dirac_command(DiracLHCb().bkQueryPath, path)
     if print_stats:
         # Available stats:
         # 'Summary': {'EventInputStat': 10195005001,
@@ -43,11 +101,11 @@ def bk_query(path, print_stats=False):
         #             'Number Of Files': 1388,
         #             'Number of Events': 33243702,
         #             'TotalLuminosity': 0}}
-        lumi = resp['Value']['Summary']['Luminosity'] / 1e9
-        num_files = resp['Value']['Summary']['Number Of Files']
+        lumi = res['Summary']['Luminosity'] / 1e9
+        num_files = res['Summary']['Number Of Files']
         print('Path contains {} files with total luminosity of {} fb^{{-1}}'.format(lumi,
                                                                                     num_files))
-    return resp['Value']['LFNs'].keys()
+    return res['LFNs'].keys()
 
 
 def split_input_data(lfns, max_files_per_job=10):
@@ -68,10 +126,8 @@ def split_input_data(lfns, max_files_per_job=10):
 
 
     """
-    res = DiracLHCb().splitInputData(lfns, maxFilesPerJob=max_files_per_job)
-    if not res['OK']:
-        raise DiracException(res['Message'])
-    return res['Value']
+    return _do_dirac_command(DiracLHCb().splitInputData,
+                             lfns, maxFilesPerJob=max_files_per_job)
 
 
 def get_job_output(job_id, output_folder):
@@ -95,11 +151,10 @@ def get_job_output(job_id, output_folder):
     output_folder = os.path.abspath(output_folder)
     if not os.path.isdir(output_folder):
         os.makedirs(output_folder)
-    res = DiracLHCb().getOutputSandbox(job_id,
-                                       outputDir=output_folder,
-                                       noJobDir=False)
-    if not res['OK']:
-        raise DiracException(res['Message'])
+    _do_dirac_command(DiracLHCb().getOutputSandbox,
+                      job_id,
+                      outputDir=output_folder,
+                      noJobDir=False)
     return os.path.join(output_folder, str(job_id))
 
 # EOF

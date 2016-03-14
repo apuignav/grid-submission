@@ -27,7 +27,10 @@ WORKDIR = os.getcwd()
 import leveldb
 db = leveldb.LevelDB(os.path.join(WORKDIR, 'jobs.db'))
 
-from dirac import bk_query, split_input_data, get_job_output
+import dirac
+
+bk_query = dirac.bk_query
+split_input_data = dirac.split_input_data
 
 submitting_group = gevent.pool.Group()
 submitting = gevent.queue.Queue()
@@ -35,22 +38,36 @@ monitoring_group = gevent.pool.Group()
 monitoring = gevent.queue.Queue()
 downloading_group = gevent.pool.Group()
 downloading = gevent.queue.Queue()
+resubmitting_group = gevent.pool.Group()
+resubmitting = gevent.queue.Queue()
 
 def submit_():
     while True:
         j = submitting.get()
+        # Do the submission
         print('Submitting job')
-        resp = dirac.submit(j)
-        jid = resp['JobID']
-
+        jid = dirac.submit(j)
+        # Prepare the internal job object and store it
         obj = {'jid': jid,
                'status': 'Submitted',
                'downloaded': False,
                'download_retries': 1}
-
         db.Put(bytes(jid), json.dumps(obj))
         monitoring.put(obj)
         print('Submitted job')
+
+def resubmit_():
+    jobs_to_reschedule = {}
+    while True:
+        j = resubmitting.get()
+        jobs_to_reschedule[j['jid']] = j
+    print('Resubmitting jobs {}'.format(','.join(jobs_to_reschedule.keys())))
+    dirac.reschedule(jobs_to_reschedule.keys())
+    for jid, job in jobs_to_reschedule.items():
+        job['status'] = 'Submitted'
+        db.Put(bytes(jid), json.dumps(job))
+        monitoring.put(job)
+    print('Resubmitted jobs')
 
 def monitor_():
     while True:
@@ -82,7 +99,7 @@ def download_():
         jid = obj['jid']
         print('Downloading job {}'.format(jid))
         try:
-            output_folder = get_job_output(jid, WORKDIR)
+            output_folder = dirac.get_job_output(jid, WORKDIR)
             if obj['status'] == 'Done':
                 if not os.path.exists(done_folder):
                     os.mkdir(done_folder)
@@ -121,7 +138,11 @@ def submit_command(args):
     execfile(args.submission_script)
 
 def watch_command(args):
-    pass
+    if args.resubmit:
+        for k, v in db.RangeIter():
+            obj = json.loads(v)
+            if obj['status'] == 'Failed':
+                resubmitting.put(obj)
 
 def print_summary():
     counter = collections.Counter()
@@ -154,6 +175,9 @@ if __name__ == '__main__':
     submit_parser.add_argument('submission_script')
     submit_parser.set_defaults(func=submit_command)
     watch_parser = subparsers.add_parser('watch')
+    watch_parser.add_argument('-r', '--resubmit',
+                              action='store_true',
+                              help='Resubmit failed jobs')
     watch_parser.set_defaults(func=watch_command)
 
     args = parser.parse_args()
@@ -175,6 +199,9 @@ if __name__ == '__main__':
     for i in range(10):
         downloading_group.spawn(download_)
 
+    for i in range(10):
+        resubmitting_group.spawn(resubmit_)
+
     for k, v in db.RangeIter():
         obj = json.loads(v)
         if not obj['downloaded']:
@@ -184,4 +211,5 @@ if __name__ == '__main__':
     submitting_group.join()
     monitoring_group.join()
     downloading_groupt.join()
+    resubmitting_group.join()
 
